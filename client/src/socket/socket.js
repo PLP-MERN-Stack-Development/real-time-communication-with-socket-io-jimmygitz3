@@ -1,149 +1,197 @@
-// socket.js - Socket.io client setup
+// socket.js - Enhanced Socket.io client setup
 
 import { io } from 'socket.io-client';
-import { useEffect, useState } from 'react';
 
 // Socket.io connection URL
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 
-// Create socket instance
+// Create socket instance with enhanced configuration
 export const socket = io(SOCKET_URL, {
   autoConnect: false,
   reconnection: true,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: 10,
   reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  maxReconnectionAttempts: 10,
+  timeout: 20000,
+  forceNew: false
 });
 
-// Custom hook for using socket.io
-export const useSocket = () => {
-  const [isConnected, setIsConnected] = useState(socket.connected);
-  const [lastMessage, setLastMessage] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [typingUsers, setTypingUsers] = useState([]);
+// Connection state management
+let reconnectAttempts = 0;
+const maxReconnectAttempts = 10;
 
-  // Connect to socket server
-  const connect = (username) => {
+// Enhanced reconnection logic
+socket.on('connect', () => {
+  console.log('Connected to server');
+  reconnectAttempts = 0;
+});
+
+socket.on('disconnect', (reason) => {
+  console.log('Disconnected from server:', reason);
+  
+  if (reason === 'io server disconnect') {
+    // Server disconnected the socket, reconnect manually
     socket.connect();
-    if (username) {
-      socket.emit('user_join', username);
-    }
-  };
+  }
+});
 
-  // Disconnect from socket server
-  const disconnect = () => {
-    socket.disconnect();
-  };
+socket.on('reconnect', (attemptNumber) => {
+  console.log('Reconnected after', attemptNumber, 'attempts');
+});
 
-  // Send a message
-  const sendMessage = (message) => {
-    socket.emit('send_message', { message });
-  };
+socket.on('reconnect_attempt', (attemptNumber) => {
+  console.log('Reconnection attempt:', attemptNumber);
+  reconnectAttempts = attemptNumber;
+});
 
-  // Send a private message
-  const sendPrivateMessage = (to, message) => {
-    socket.emit('private_message', { to, message });
-  };
+socket.on('reconnect_error', (error) => {
+  console.log('Reconnection error:', error);
+});
 
-  // Set typing status
-  const setTyping = (isTyping) => {
-    socket.emit('typing', isTyping);
-  };
+socket.on('reconnect_failed', () => {
+  console.log('Failed to reconnect after', maxReconnectAttempts, 'attempts');
+});
 
-  // Socket event listeners
-  useEffect(() => {
-    // Connection events
-    const onConnect = () => {
-      setIsConnected(true);
-    };
-
-    const onDisconnect = () => {
-      setIsConnected(false);
-    };
-
-    // Message events
-    const onReceiveMessage = (message) => {
-      setLastMessage(message);
-      setMessages((prev) => [...prev, message]);
-    };
-
-    const onPrivateMessage = (message) => {
-      setLastMessage(message);
-      setMessages((prev) => [...prev, message]);
-    };
-
-    // User events
-    const onUserList = (userList) => {
-      setUsers(userList);
-    };
-
-    const onUserJoined = (user) => {
-      // You could add a system message here
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          system: true,
-          message: `${user.username} joined the chat`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-    };
-
-    const onUserLeft = (user) => {
-      // You could add a system message here
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          system: true,
-          message: `${user.username} left the chat`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-    };
-
-    // Typing events
-    const onTypingUsers = (users) => {
-      setTypingUsers(users);
-    };
-
-    // Register event listeners
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('receive_message', onReceiveMessage);
-    socket.on('private_message', onPrivateMessage);
-    socket.on('user_list', onUserList);
-    socket.on('user_joined', onUserJoined);
-    socket.on('user_left', onUserLeft);
-    socket.on('typing_users', onTypingUsers);
-
-    // Clean up event listeners
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('receive_message', onReceiveMessage);
-      socket.off('private_message', onPrivateMessage);
-      socket.off('user_list', onUserList);
-      socket.off('user_joined', onUserJoined);
-      socket.off('user_left', onUserLeft);
-      socket.off('typing_users', onTypingUsers);
-    };
-  }, []);
-
-  return {
-    socket,
-    isConnected,
-    lastMessage,
-    messages,
-    users,
-    typingUsers,
-    connect,
-    disconnect,
-    sendMessage,
-    sendPrivateMessage,
-    setTyping,
-  };
+// Connection helper functions
+export const connectSocket = (userData) => {
+  if (!socket.connected) {
+    socket.connect();
+  }
+  
+  if (userData) {
+    socket.emit('user_join', userData.username);
+  }
 };
+
+export const disconnectSocket = () => {
+  if (socket.connected) {
+    socket.disconnect();
+  }
+};
+
+// Message sending functions
+export const sendMessage = (message, room, fileData = null) => {
+  if (socket.connected) {
+    socket.emit('send_message', { message, room, fileData });
+  }
+};
+
+export const sendPrivateMessage = (recipientId, message, fileData = null) => {
+  if (socket.connected) {
+    socket.emit('private_message', { to: recipientId, message, fileData });
+  }
+};
+
+// Room management
+export const joinRoom = (room) => {
+  if (socket.connected) {
+    socket.emit('join_room', room);
+  }
+};
+
+export const createRoom = (roomName) => {
+  if (socket.connected) {
+    socket.emit('create_room', roomName);
+  }
+};
+
+// Typing indicators
+export const setTyping = (isTyping) => {
+  if (socket.connected) {
+    socket.emit('typing', isTyping);
+  }
+};
+
+// Message interactions
+export const addReaction = (messageId, reaction) => {
+  if (socket.connected) {
+    socket.emit('add_reaction', { messageId, reaction });
+  }
+};
+
+export const markAsRead = (messageId, room) => {
+  if (socket.connected) {
+    socket.emit('mark_as_read', { messageId, room });
+  }
+};
+
+// User status
+export const updateStatus = (status) => {
+  if (socket.connected) {
+    socket.emit('update_status', status);
+  }
+};
+
+// File upload helper
+export const uploadFile = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  try {
+    const response = await fetch(`${SOCKET_URL}/api/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error('Upload failed');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('File upload error:', error);
+    throw error;
+  }
+};
+
+// API helpers
+export const fetchMessages = async (room, page = 1, limit = 50) => {
+  try {
+    const response = await fetch(`${SOCKET_URL}/api/messages/${room}?page=${page}&limit=${limit}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch messages');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Fetch messages error:', error);
+    throw error;
+  }
+};
+
+export const fetchUsers = async () => {
+  try {
+    const response = await fetch(`${SOCKET_URL}/api/users`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch users');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Fetch users error:', error);
+    throw error;
+  }
+};
+
+export const fetchRooms = async () => {
+  try {
+    const response = await fetch(`${SOCKET_URL}/api/rooms`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch rooms');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Fetch rooms error:', error);
+    throw error;
+  }
+};
+
+// Utility functions
+export const isConnected = () => socket.connected;
+
+export const getConnectionState = () => ({
+  connected: socket.connected,
+  reconnectAttempts,
+  maxReconnectAttempts
+});
 
 export default socket; 
